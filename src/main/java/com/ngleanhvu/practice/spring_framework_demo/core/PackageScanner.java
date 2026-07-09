@@ -14,7 +14,7 @@ public class PackageScanner {
             String path = packageName.replace(".", "/");
 
             ClassLoader classLoader =
-                    Thread.currentThread()
+                     Thread.currentThread()
                             .getContextClassLoader();
 
             URL resource =

@@ -6,10 +6,9 @@ import com.ngleanhvu.practice.spring_framework_demo.core.Service;
 @Service
 public class UserService implements IUserService {
 
-    @Qualifier(value = "mongo")
     private final Database database;
 
-    public UserService(Database database) {
+    public UserService(@Qualifier("MySQL") Database database) {
         this.database = database;
     }
 

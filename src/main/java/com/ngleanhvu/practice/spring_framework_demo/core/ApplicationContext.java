@@ -1,5 +1,6 @@
 package com.ngleanhvu.practice.spring_framework_demo.core;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -33,9 +34,21 @@ public final class ApplicationContext {
 
     }
 
-    private Object createBean(Class<?> clazz) throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+    private void createBean(Class<?> clazz) throws
+            InvocationTargetException,
+            NoSuchMethodException,
+            InstantiationException,
+            IllegalAccessException {
+        createBean(clazz, null);
+    }
 
-        Class<?> targetClass = resolveType(clazz);
+    private Object createBean(Class<?> clazz, String qualifierName) throws
+            NoSuchMethodException,
+            InvocationTargetException,
+            InstantiationException,
+            IllegalAccessException {
+
+        Class<?> targetClass = resolveType(clazz, qualifierName);
 
         if (singletonBeans.containsKey(targetClass)) {
             return singletonBeans.get(targetClass);
@@ -48,12 +61,14 @@ public final class ApplicationContext {
         Constructor<?> constructor = getConstructor(targetClass);
 
         Class<?>[] parameterTypes = constructor.getParameterTypes();
+        Annotation[][] parameterAnnotations = constructor.getParameterAnnotations();
 
         Object[] dependencies = new Object[parameterTypes.length];
 
         for (int i = 0; i < dependencies.length; i++) {
             Class<?> dependencyType = parameterTypes[i];
-            Object dependency = createBean(dependencyType);
+            String paramQualifier = extractQualifier(parameterAnnotations[i]);
+            Object dependency = createBean(dependencyType, paramQualifier);
             if (dependency == null) {
                 throw new RuntimeException("Dependency not found: " + dependencyType.getName());
             }
@@ -66,6 +81,15 @@ public final class ApplicationContext {
         registerBean(targetClass, bean);
 
         return bean;
+    }
+
+    private String extractQualifier(Annotation[] annotations) {
+        for (Annotation annotation : annotations) {
+            if (annotation instanceof Qualifier) {
+                return ((Qualifier) annotation).value();
+            }
+        }
+        return null;
     }
 
     private void registerBean(Class<?> clazz, Object bean) {
@@ -91,7 +115,10 @@ public final class ApplicationContext {
             for (Field field : fields) {
                 boolean hasAutowired = field.isAnnotationPresent(Autowired.class);
                 if (hasAutowired) {
-                    Object dependency = createBean(field.getType());
+                    String qualifierName = field.isAnnotationPresent(Qualifier.class)
+                            ? field.getAnnotation(Qualifier.class).value()
+                            : null;
+                    Object dependency = createBean(field.getType(), qualifierName);
                     if (dependency == null) {
                         throw new RuntimeException(
                                 "Dependency not found: "
@@ -149,7 +176,7 @@ public final class ApplicationContext {
                 || bean.isAnnotationPresent(Source.class);
     }
 
-    private Class<?> resolveType(Class<?> clazz) {
+    private Class<?> resolveType(Class<?> clazz, String qualifierName) {
         if (!clazz.isInterface()) {
             return clazz;
         }
@@ -162,18 +189,17 @@ public final class ApplicationContext {
             );
         }
 
+        if (qualifierName != null) {
+            return getClassByQualifier(implementations, clazz, qualifierName);
+        }
+
         return getClassWithPrimaryAnnotation(implementations);
     }
 
-
-    private Class<?> getClassWithPrimaryAnnotation(List<Class<?>> classes) {
-
-        if (classes.size() == 1) {
-            return classes.get(0);
-        }
-
+    private Class<?> getClassByQualifier(List<Class<?>> classes, Class<?> ifaceForErrorMsg, String qualifierName) {
         for (Class<?> clazz : classes) {
-            if (clazz.isAnnotationPresent(Primary.class)) {
+            if (clazz.isAnnotationPresent(Qualifier.class)
+                    && qualifierName.equals(clazz.getAnnotation(Qualifier.class).value())) {
                 return clazz;
             }
         }
@@ -181,23 +207,34 @@ public final class ApplicationContext {
         return null;
     }
 
+    private Class<?> getClassWithPrimaryAnnotation(List<Class<?>> classes) {
+        if (classes.size() == 1) return classes.get(0);
+        for (Class<?> clazz : classes) {
+            if (clazz.isAnnotationPresent(Primary.class)) return clazz;
+        }
+        throw new RuntimeException(
+                "Multiple implementations found for "
+                        + " but none marked @Primary and no @Qualifier specified"
+        );
+    }
+
     public <T> T getBean(Class<T> clazz) {
+        return getBean(clazz, null);
+    }
 
-        Object bean = singletonBeans.get(clazz);
+    public <T> T getBean(Class<T> clazz, String qualifierName) {
+        try {
+            Class<?> targetClass = resolveType(clazz, qualifierName);
+            Object bean = singletonBeans.get(targetClass);
 
-
-        if(bean == null){
-
-            try {
-                bean = createBean(clazz);
-            } catch(Exception e){
-                throw new RuntimeException(e);
+            if (bean == null) {
+                bean = createBean(clazz, qualifierName);
             }
 
+            return clazz.cast(bean);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-
-
-        return clazz.cast(bean);
     }
 
 }
