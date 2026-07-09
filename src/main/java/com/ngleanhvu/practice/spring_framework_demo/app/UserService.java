@@ -1,5 +1,7 @@
 package com.ngleanhvu.practice.spring_framework_demo.app;
 
+import com.ngleanhvu.practice.spring_framework_demo.core.PostConstruct;
+import com.ngleanhvu.practice.spring_framework_demo.core.PreDestroy;
 import com.ngleanhvu.practice.spring_framework_demo.core.Qualifier;
 import com.ngleanhvu.practice.spring_framework_demo.core.Service;
 
@@ -15,5 +17,15 @@ public class UserService implements IUserService {
     public void createUser() {
         database.save();
         System.out.println("create user data");
+    }
+
+    @PostConstruct
+    public void init() {
+        System.out.println("UserService running");
+    }
+
+    @PreDestroy
+    public void close() {
+        System.out.println("UserService destroyed");
     }
 }

@@ -4,12 +4,14 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
 
 public final class ApplicationContext {
     private final Map<Class<?>, Object> singletonBeans = new HashMap<>();
     private final Map<Class<?>, List<Class<?>>> interfaceImplementations = new HashMap<>();
     private final Map<String, Object> beanByName = new HashMap<>();
+    private final Set<Object> initializedBeans = new HashSet<>();
 
     public ApplicationContext(String packageName) {
         try {
@@ -27,11 +29,20 @@ public final class ApplicationContext {
             }
 
             injectDependencies();
+            invokeInitMethods();
 
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
 
+    }
+
+    public void close() throws InvocationTargetException, IllegalAccessException {
+        this.destroyBeans();
+        initializedBeans.clear();
+        beanByName.clear();
+        initializedBeans.clear();
+        interfaceImplementations.clear();
     }
 
     private void createBean(Class<?> clazz) throws
@@ -127,6 +138,34 @@ public final class ApplicationContext {
                     }
                     field.setAccessible(true);
                     field.set(bean, dependency);
+                }
+            }
+        }
+    }
+
+    private void invokeInitMethods() throws InvocationTargetException, IllegalAccessException {
+        for (Object bean : singletonBeans.values()) {
+            if (initializedBeans.contains(bean)) {
+                continue;
+            }
+            Method[] methods = bean.getClass().getDeclaredMethods();
+            for (Method method : methods) {
+                if (method.isAnnotationPresent(PostConstruct.class) && method.getParameterCount() == 0) {
+                    method.setAccessible(true);
+                    method.invoke(bean);
+                }
+            }
+            initializedBeans.add(bean);
+        }
+    }
+
+    private void destroyBeans() throws InvocationTargetException, IllegalAccessException {
+        for (Object bean : singletonBeans.values()) {
+            Method[] methods = bean.getClass().getDeclaredMethods();
+            for (Method method : methods) {
+                if (method.isAnnotationPresent(PreDestroy.class) && method.getParameterCount() == 0) {
+                    method.setAccessible(true);
+                    method.invoke(bean);
                 }
             }
         }
