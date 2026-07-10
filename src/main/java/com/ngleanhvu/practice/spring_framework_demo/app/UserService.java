@@ -1,10 +1,8 @@
 package com.ngleanhvu.practice.spring_framework_demo.app;
 
-import com.ngleanhvu.practice.spring_framework_demo.core.PostConstruct;
-import com.ngleanhvu.practice.spring_framework_demo.core.PreDestroy;
-import com.ngleanhvu.practice.spring_framework_demo.core.Qualifier;
-import com.ngleanhvu.practice.spring_framework_demo.core.Service;
+import com.ngleanhvu.practice.spring_framework_demo.core.*;
 
+@Scope(value = "singleton")
 @Service
 public class UserService implements IUserService {
 
