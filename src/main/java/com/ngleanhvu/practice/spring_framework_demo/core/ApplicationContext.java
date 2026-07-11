@@ -8,9 +8,9 @@ import java.lang.reflect.Method;
 import java.util.*;
 
 public final class ApplicationContext {
-    private final Map<Class<?>, Object> singletonBeans = new HashMap<>();
-    private final Map<Class<?>, List<Class<?>>> interfaceImplementations = new HashMap<>();
-    private final Map<String, Object> beanByName = new HashMap<>();
+    private final Map<String, BeanDefinition> beanDefinitions = new HashMap<>();
+    private final Map<String, Object> singletonBeans = new HashMap<>();
+    private final Map<Class<?>, List<BeanDefinition>> interfaceImplementations = new HashMap<>();
     private final Set<Object> initializedBeans = new HashSet<>();
 
     public ApplicationContext(String packageName) {
@@ -19,13 +19,20 @@ public final class ApplicationContext {
 
             Set<Class<?>> classes = scanner.scan(packageName);
 
-            buildInterfacesMap(classes);
 
             for (Class<?> clazz : classes) {
-                if (clazz.isInterface() || clazz.isAnnotation()) {
+                if (clazz.isAnnotation() || clazz.isInterface() || !Util.isValidBean(clazz)) {
                     continue;
                 }
-                createBean(clazz);
+                createBeanDefinition(clazz);
+            }
+
+            buildInterfacesMap(beanDefinitions);
+
+            for (BeanDefinition beanDefinition : beanDefinitions.values()) {
+                if (beanDefinition.isSingleton()) {
+                    createBean(beanDefinition);
+                }
             }
 
             injectDependencies();
@@ -37,35 +44,56 @@ public final class ApplicationContext {
 
     }
 
+    private void createBeanDefinition(Class<?> clazz) {
+        boolean hasPrimaryAnnotation = clazz.isAnnotationPresent(Primary.class);
+        String beanName = Util.getBeanName(clazz);
+        String scope = Util.getScopeOfBeanDefinition(clazz);
+        boolean isSingleton = Util.isSingleton(scope);
+
+        BeanDefinition beanDefinition = new BeanDefinition();
+        beanDefinition.setBeanClass(clazz);
+        beanDefinition.setBeanName(beanName);
+        beanDefinition.setPrimary(hasPrimaryAnnotation);
+        beanDefinition.setSingleton(isSingleton);
+
+        beanDefinitions.put(beanName, beanDefinition);
+
+    }
+
+
     public void close() throws InvocationTargetException, IllegalAccessException {
         this.destroyBeans();
         initializedBeans.clear();
-        beanByName.clear();
-        initializedBeans.clear();
         interfaceImplementations.clear();
+        initializedBeans.clear();
+        beanDefinitions.clear();
     }
 
-    private void createBean(Class<?> clazz) throws
+    private void createBean(BeanDefinition beanDefinition) throws
             InvocationTargetException,
             NoSuchMethodException,
             InstantiationException,
             IllegalAccessException {
-        createBean(clazz, null);
+        createBean(beanDefinition, null);
     }
 
-    private Object createBean(Class<?> clazz, String qualifierName) throws
+    private Object createBean(BeanDefinition beanDefinition, String qualifierName) throws
             NoSuchMethodException,
             InvocationTargetException,
             InstantiationException,
             IllegalAccessException {
 
-        Class<?> targetClass = resolveType(clazz, qualifierName);
+        BeanDefinition resolved = resolveType(beanDefinition.getBeanClass(), qualifierName);
+        String beanName = Util.getBeanName(resolved.getBeanClass());
+        Class<?> targetClass = resolved.getBeanClass();
+        boolean singleton = resolved.isSingleton();
 
-        if (singletonBeans.containsKey(targetClass)) {
-            return singletonBeans.get(targetClass);
+        // Chỉ tra cache nếu là singleton. Prototype luôn tạo mới.
+        if (singleton && singletonBeans.containsKey(beanName)) {
+            return singletonBeans.get(beanName);
         }
 
-        if (!isValidBean(targetClass)) {
+        if (!Util.isValidBean(targetClass)) {
             return null;
         }
 
@@ -78,8 +106,15 @@ public final class ApplicationContext {
 
         for (int i = 0; i < dependencies.length; i++) {
             Class<?> dependencyType = parameterTypes[i];
-            String paramQualifier = extractQualifier(parameterAnnotations[i]);
-            Object dependency = createBean(dependencyType, paramQualifier);
+            BeanDefinition beanDef;
+            String paramQualifier = Util.extractQualifier(parameterAnnotations[i]);
+            if (dependencyType.isInterface()) {
+                beanDef = resolveType(dependencyType, paramQualifier);
+            } else {
+                String beanName1 = Util.getBeanName(dependencyType);
+                beanDef = beanDefinitions.get(beanName1);
+            }
+            Object dependency = createBean(beanDef, paramQualifier);
             if (dependency == null) {
                 throw new RuntimeException("Dependency not found: " + dependencyType.getName());
             }
@@ -89,32 +124,24 @@ public final class ApplicationContext {
         constructor.setAccessible(true);
         Object bean = constructor.newInstance(dependencies);
 
-        registerBean(targetClass, bean);
+        if (singleton) {
+            registerBean(resolved, bean);
+        } else {
+            // Bean prototype không được cache/quản lý bởi container,
+            // nên phải tự inject field + gọi @PostConstruct ngay tại đây,
+            // vì nó sẽ không được các bulk-pass (injectDependencies/invokeInitMethods) quét tới.
+            injectFieldsInto(bean);
+            invokePostConstructOn(bean);
+        }
 
         return bean;
     }
 
-    private String extractQualifier(Annotation[] annotations) {
-        for (Annotation annotation : annotations) {
-            if (annotation instanceof Qualifier) {
-                return ((Qualifier) annotation).value();
-            }
-        }
-        return null;
-    }
+    private void registerBean(BeanDefinition beanDefinition, Object bean) {
 
-    private void registerBean(Class<?> clazz, Object bean) {
+        String beanName = beanDefinition.getBeanName();
+        singletonBeans.put(beanName, bean);
 
-        singletonBeans.put(clazz, bean);
-
-
-        if(clazz.isAnnotationPresent(Qualifier.class)){
-            String name =
-                    clazz.getAnnotation(Qualifier.class)
-                            .value();
-
-            beanByName.put(name, bean);
-        }
     }
 
     private void injectDependencies() throws InvocationTargetException,
@@ -122,44 +149,63 @@ public final class ApplicationContext {
             InstantiationException,
             IllegalAccessException {
         for (Object bean : singletonBeans.values()) {
-            Field[] fields = bean.getClass().getDeclaredFields();
-            for (Field field : fields) {
-                boolean hasAutowired = field.isAnnotationPresent(Autowired.class);
-                if (hasAutowired) {
-                    String qualifierName = field.isAnnotationPresent(Qualifier.class)
-                            ? field.getAnnotation(Qualifier.class).value()
-                            : null;
-                    Object dependency = createBean(field.getType(), qualifierName);
-                    if (dependency == null) {
-                        throw new RuntimeException(
-                                "Dependency not found: "
-                                        + field.getType().getName()
-                        );
-                    }
-                    field.setAccessible(true);
-                    field.set(bean, dependency);
+            injectFieldsInto(bean);
+        }
+    }
+
+    private void injectFieldsInto(Object bean) throws InvocationTargetException,
+            NoSuchMethodException,
+            InstantiationException,
+            IllegalAccessException {
+        Field[] fields = bean.getClass().getDeclaredFields();
+        for (Field field : fields) {
+            boolean hasAutowired = field.isAnnotationPresent(Autowired.class);
+            if (hasAutowired) {
+                String qualifierName = field.isAnnotationPresent(Qualifier.class)
+                        ? field.getAnnotation(Qualifier.class).value()
+                        : null;
+                Class<?> dependencyType = field.getType();
+                BeanDefinition beanDef;
+                if (dependencyType.isInterface()) {
+                    beanDef = resolveType(dependencyType, qualifierName);
+                } else {
+                    beanDef = beanDefinitions.get(Util.getBeanName(dependencyType));
                 }
+                Object dependency = createBean(beanDef, qualifierName);
+                if (dependency == null) {
+                    throw new RuntimeException(
+                            "Dependency not found: " + field.getType().getName()
+                    );
+                }
+                field.setAccessible(true);
+                field.set(bean, dependency);
             }
         }
     }
 
     private void invokeInitMethods() throws InvocationTargetException, IllegalAccessException {
         for (Object bean : singletonBeans.values()) {
-            if (initializedBeans.contains(bean)) {
-                continue;
-            }
-            Method[] methods = bean.getClass().getDeclaredMethods();
-            for (Method method : methods) {
-                if (method.isAnnotationPresent(PostConstruct.class) && method.getParameterCount() == 0) {
-                    method.setAccessible(true);
-                    method.invoke(bean);
-                }
-            }
-            initializedBeans.add(bean);
+            invokePostConstructOn(bean);
         }
     }
 
+    private void invokePostConstructOn(Object bean) throws InvocationTargetException, IllegalAccessException {
+        if (initializedBeans.contains(bean)) {
+            return;
+        }
+        Method[] methods = bean.getClass().getDeclaredMethods();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(PostConstruct.class) && method.getParameterCount() == 0) {
+                method.setAccessible(true);
+                method.invoke(bean);
+            }
+        }
+        initializedBeans.add(bean);
+    }
+
     private void destroyBeans() throws InvocationTargetException, IllegalAccessException {
+        // Chỉ singleton bean được container quản lý vòng đời huỷ.
+        // Prototype bean không bị container giữ tham chiếu nên không thể/không nên gọi @PreDestroy ở đây.
         for (Object bean : singletonBeans.values()) {
             Method[] methods = bean.getClass().getDeclaredMethods();
             for (Method method : methods) {
@@ -171,17 +217,97 @@ public final class ApplicationContext {
         }
     }
 
-    private void buildInterfacesMap(Set<Class<?>> classes) {
-        for (Class<?> clazz : classes) {
-            if (!isValidBean(clazz)) {
+    private void buildInterfacesMap(Map<String, BeanDefinition> beanDefinitions) {
+        for (BeanDefinition beanDefinition : beanDefinitions.values()) {
+            Class<?> clazz = beanDefinition.getBeanClass();
+            if (!Util.isValidBean(clazz)) {
                 continue;
             }
             for (Class<?> iface : getAllInterfaces(clazz)) {
                 interfaceImplementations
                         .computeIfAbsent(iface, k -> new ArrayList<>())
-                        .add(clazz);
+                        .add(beanDefinition);
             }
         }
+    }
+
+    private Constructor<?> getConstructor(Class<?> clazz) throws NoSuchMethodException {
+        Constructor<?>[] constructors = clazz.getDeclaredConstructors();
+        for (Constructor<?> constructor : constructors) {
+            if (constructor.getParameterCount() > 0) {
+                return constructor;
+            }
+        }
+        return clazz.getDeclaredConstructor();
+    }
+
+    private BeanDefinition resolveType(Class<?> clazz, String qualifierName) {
+        if (!clazz.isInterface()) {
+            return getBeanDefinitionByClass(clazz);
+        }
+
+        List<BeanDefinition> implementations = interfaceImplementations.get(clazz);
+
+        if (implementations == null || implementations.isEmpty()) {
+            throw new RuntimeException(
+                    "No implementation found for " + clazz.getName()
+            );
+        }
+
+        if (qualifierName != null) {
+            return Util.getBeanByQualifier(implementations, qualifierName);
+        }
+
+        return getBeaDefinitionWithPrimaryAnnotation(implementations);
+    }
+
+    private BeanDefinition getBeaDefinitionWithPrimaryAnnotation(List<BeanDefinition> beanDefinitions) {
+        if (beanDefinitions.size() == 1) return beanDefinitions.get(0);
+
+        BeanDefinition result = null;
+        int countPrimary = 0;
+        for (BeanDefinition beanDefinition : beanDefinitions) {
+            if (beanDefinition.isPrimary()) {
+                if (countPrimary > 0) {
+                    throw new RuntimeException("Multiple implementations found with @Primary annotation");
+                }
+                result = beanDefinition;
+                countPrimary++;
+            }
+        }
+        if (countPrimary == 0) {
+            throw new RuntimeException("Multiple implementations found but none marked @Primary and no @Qualifier specified");
+        }
+        return result;
+    }
+
+    public <T> T getBean(Class<T> clazz) {
+        return getBean(clazz, null);
+    }
+
+    public <T> T getBean(Class<T> clazz, String qualifierName) {
+        try {
+            BeanDefinition beanDefinition = resolveType(clazz, qualifierName);
+            String beanName = Util.getBeanName(beanDefinition.getBeanClass());
+
+            // Với prototype, singletonBeans sẽ không bao giờ có key này -> luôn rơi vào createBean -> luôn tạo instance mới.
+            Object bean = beanDefinition.isSingleton() ? singletonBeans.get(beanName) : null;
+
+            if (bean == null) {
+                bean = createBean(beanDefinition, qualifierName);
+            }
+
+            return clazz.cast(bean);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // private util
+
+    private BeanDefinition getBeanDefinitionByClass(Class<?> clazz) {
+        String beanName = Util.getBeanName(clazz);
+        return beanDefinitions.get(beanName);
     }
 
     private Set<Class<?>> getAllInterfaces(Class<?> clazz) {
@@ -198,82 +324,4 @@ public final class ApplicationContext {
         }
         return result;
     }
-
-    private Constructor<?> getConstructor(Class<?> clazz) throws NoSuchMethodException {
-        Constructor<?>[] constructors = clazz.getDeclaredConstructors();
-        for (Constructor<?> constructor : constructors) {
-            if (constructor.getParameterCount() > 0) {
-                return constructor;
-            }
-        }
-        return clazz.getDeclaredConstructor();
-    }
-
-    private boolean isValidBean(Class<?> bean) {
-        return bean.isAnnotationPresent(Service.class)
-                || bean.isAnnotationPresent(Repository.class)
-                || bean.isAnnotationPresent(Source.class);
-    }
-
-    private Class<?> resolveType(Class<?> clazz, String qualifierName) {
-        if (!clazz.isInterface()) {
-            return clazz;
-        }
-
-        List<Class<?>> implementations = interfaceImplementations.get(clazz);
-
-        if (implementations == null || implementations.isEmpty()) {
-            throw new RuntimeException(
-                    "No implementation found for " + clazz.getName()
-            );
-        }
-
-        if (qualifierName != null) {
-            return getClassByQualifier(implementations, clazz, qualifierName);
-        }
-
-        return getClassWithPrimaryAnnotation(implementations);
-    }
-
-    private Class<?> getClassByQualifier(List<Class<?>> classes, Class<?> ifaceForErrorMsg, String qualifierName) {
-        for (Class<?> clazz : classes) {
-            if (clazz.isAnnotationPresent(Qualifier.class)
-                    && qualifierName.equals(clazz.getAnnotation(Qualifier.class).value())) {
-                return clazz;
-            }
-        }
-
-        return null;
-    }
-
-    private Class<?> getClassWithPrimaryAnnotation(List<Class<?>> classes) {
-        if (classes.size() == 1) return classes.get(0);
-        for (Class<?> clazz : classes) {
-            if (clazz.isAnnotationPresent(Primary.class)) return clazz;
-        }
-        throw new RuntimeException(
-                "Multiple implementations found for "
-                        + " but none marked @Primary and no @Qualifier specified"
-        );
-    }
-
-    public <T> T getBean(Class<T> clazz) {
-        return getBean(clazz, null);
-    }
-
-    public <T> T getBean(Class<T> clazz, String qualifierName) {
-        try {
-            Class<?> targetClass = resolveType(clazz, qualifierName);
-            Object bean = singletonBeans.get(targetClass);
-
-            if (bean == null) {
-                bean = createBean(clazz, qualifierName);
-            }
-
-            return clazz.cast(bean);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
 }

@@ -6,11 +6,9 @@ import com.ngleanhvu.practice.spring_framework_demo.core.*;
 @Service
 public class UserService implements IUserService {
 
-    private final Database database;
-
-    public UserService(@Qualifier("MySQL") Database database) {
-        this.database = database;
-    }
+    @Autowired
+    @Qualifier("mySqlDatabase")
+    private  Database database;
 
     public void createUser() {
         database.save();
