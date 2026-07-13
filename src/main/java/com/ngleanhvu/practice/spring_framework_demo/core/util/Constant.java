@@ -1,4 +1,4 @@
-package com.ngleanhvu.practice.spring_framework_demo.core;
+package com.ngleanhvu.practice.spring_framework_demo.core.util;
 
 public class Constant {
     public static final String SINGLETON = "singleton";

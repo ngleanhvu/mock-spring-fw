@@ -1,17 +1,14 @@
-package com.ngleanhvu.practice.spring_framework_demo.core;
+package com.ngleanhvu.practice.spring_framework_demo.core.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-@Target({
-        ElementType.FIELD,
-        ElementType.PARAMETER
-})
+@Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Qualifier {
+public @interface Service {
 
-    String value();
+    String value() default "";
 
 }

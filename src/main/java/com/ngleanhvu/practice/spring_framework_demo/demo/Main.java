@@ -1,6 +1,5 @@
-package com.ngleanhvu.practice.spring_framework_demo;
+package com.ngleanhvu.practice.spring_framework_demo.demo;
 
-import com.ngleanhvu.practice.spring_framework_demo.app.IUserService;
 import com.ngleanhvu.practice.spring_framework_demo.core.ApplicationContext;
 
 import java.lang.reflect.InvocationTargetException;

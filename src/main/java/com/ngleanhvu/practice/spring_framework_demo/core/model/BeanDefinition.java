@@ -1,4 +1,4 @@
-package com.ngleanhvu.practice.spring_framework_demo.core;
+package com.ngleanhvu.practice.spring_framework_demo.core.model;
 
 public class BeanDefinition {
     private Class<?> beanClass;

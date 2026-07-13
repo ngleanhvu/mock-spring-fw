@@ -1,9 +1,9 @@
-package com.ngleanhvu.practice.spring_framework_demo.app;
+package com.ngleanhvu.practice.spring_framework_demo.demo;
 
-import com.ngleanhvu.practice.spring_framework_demo.core.Scope;
-import com.ngleanhvu.practice.spring_framework_demo.core.Source;
+import com.ngleanhvu.practice.spring_framework_demo.core.annotation.Repository;
+import com.ngleanhvu.practice.spring_framework_demo.core.annotation.Source;
 
-@Scope(value = "singleton")
+@Repository
 @Source("Mongo")
 public class MongoDatabase implements Database {
     @Override

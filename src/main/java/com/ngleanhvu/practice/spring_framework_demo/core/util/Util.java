@@ -1,7 +1,12 @@
-package com.ngleanhvu.practice.spring_framework_demo.core;
+package com.ngleanhvu.practice.spring_framework_demo.core.util;
+
+import com.ngleanhvu.practice.spring_framework_demo.core.annotation.*;
+import com.ngleanhvu.practice.spring_framework_demo.core.model.BeanDefinition;
 
 import java.lang.annotation.Annotation;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class Util {
     public static String getScopeOfBeanDefinition(Class<?> clazz) {
@@ -78,7 +83,22 @@ public class Util {
 
         return bean.isAnnotationPresent(Service.class)
                 || bean.isAnnotationPresent(Repository.class)
-                || bean.isAnnotationPresent(Source.class);
+                || bean.isAnnotationPresent(Source.class)
+                || bean.isAnnotationPresent(Component.class);
+    }
+
+    public static Set<Class<?>> getAllInterfaces(Class<?> clazz) {
+        Set<Class<?>> result = new HashSet<>();
+        Class<?> current = clazz;
+        while (current != null) {
+            for (Class<?> iface : current.getInterfaces()) {
+                if (result.add(iface)) {
+                    result.addAll(getAllInterfaces(iface));
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return result;
     }
 
 }

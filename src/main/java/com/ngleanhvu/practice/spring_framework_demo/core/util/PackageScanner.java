@@ -1,4 +1,4 @@
-package com.ngleanhvu.practice.spring_framework_demo.core;
+package com.ngleanhvu.practice.spring_framework_demo.core.util;
 
 import java.io.File;
 import java.net.URL;

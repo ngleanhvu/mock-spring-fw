@@ -1,13 +1,14 @@
-package com.ngleanhvu.practice.spring_framework_demo.app;
+package com.ngleanhvu.practice.spring_framework_demo.demo;
 
-import com.ngleanhvu.practice.spring_framework_demo.core.*;
+import com.ngleanhvu.practice.spring_framework_demo.core.annotation.Autowired;
+import com.ngleanhvu.practice.spring_framework_demo.core.annotation.Qualifier;
+import com.ngleanhvu.practice.spring_framework_demo.core.annotation.Service;
 
-@Scope(value = "singleton")
 @Service
 public class UserService implements IUserService {
 
     @Autowired
-    @Qualifier("mySqlDatabase")
+    @Qualifier("mongoDatabase")
     private  Database database;
 
     public void createUser() {
@@ -15,12 +16,10 @@ public class UserService implements IUserService {
         System.out.println("create user data");
     }
 
-    @PostConstruct
     public void init() {
         System.out.println("UserService running");
     }
 
-    @PreDestroy
     public void close() {
         System.out.println("UserService destroyed");
     }

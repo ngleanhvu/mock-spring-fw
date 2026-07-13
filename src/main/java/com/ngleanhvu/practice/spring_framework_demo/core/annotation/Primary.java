@@ -1,4 +1,4 @@
-package com.ngleanhvu.practice.spring_framework_demo.core;
+package com.ngleanhvu.practice.spring_framework_demo.core.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
